@@ -1,1 +1,328 @@
+#include <WiFi.h>
+#include <WebServer.h>
+#include <HTTPClient.h>
+
+/* ================= USER CONFIG ================= */
+
+// WiFi
+const char* ssid = "V2037";
+const char* password = "1732773459";
+
+// Telegram
+const char* BOT_TOKEN = "8332470646:AAFdZKqgcHQH6j-o7Oy6UvUtqhYYqcqTgRM";
+const char* CHAT_ID = "1990129816";
+
+/* ===== SENSOR PIN CHANGES ONLY ===== */
+
+// PIR
+#define PIR_PIN 4
+#define PIR_MONITOR_TIME 8000
+
+// LM35
+#define ADC_VREF_mV 3300.0
+#define ADC_RESOLUTION 4096.0
+#define PIN_LM35 35
+#define CALIBRATION_OFFSET -1.5
+#define TEMP_ALERT_THRESHOLD 45.0
+
+// MQ135
+#define MQ135_PIN 34
+#define BASELINE_SAMPLES 50
+#define READ_SAMPLES 10
+#define GAS_ALERT_THRESHOLD 1500
+
+/* ===== MOTOR PINS ===== */
+
+#define ENA 14
+#define IN1 27
+#define IN2 26
+
+#define ENB 25
+#define IN3 33
+#define IN4 32
+
+#define ch1 0
+#define ch2 1
+
+WebServer server(80);
+
+// Sensor states
+bool monitoring = false;
+bool motionDetected = false;
+unsigned long monitorStartTime = 0;
+
+float gasBaseline = 0;
+bool gasAlertSent = false;
+bool tempAlertSent = false;
+
+/* ================= TELEGRAM FUNCTION ================= */
+
+void sendTelegram(String message) {
+
+if (WiFi.status() != WL_CONNECTED) return;
+
+HTTPClient http;
+
+String url = "https://api.telegram.org/bot";
+url += BOT_TOKEN;
+url += "/sendMessage?chat_id=";
+url += CHAT_ID;
+url += "&text=";
+url += message;
+
+http.begin(url);
+http.GET();
+http.end();
+}
+
+/* ================= MQ135 FUNCTION ================= */
+
+float readMQ135Avg() {
+
+long sum = 0;
+
+for (int i = 0; i < READ_SAMPLES; i++) {
+sum += analogRead(MQ135_PIN);
+delay(10);
+}
+
+return sum / (float)READ_SAMPLES;
+}
+
+/* ================= YOLO DETECTION HANDLER ================= */
+
+void handleDetect() {
+
+if (!server.hasArg("human")) {
+server.send(400, "text/plain", "Missing argument");
+return;
+}
+
+String humanValue = server.arg("human");
+
+if (humanValue == "1" && !monitoring) {
+
+Serial.println("YOLO -> HUMAN DETECTED");
+
+monitoring = true;
+motionDetected = false;
+monitorStartTime = millis();
+}
+
+server.send(200, "text/plain", "OK");
+}
+
+/* ================= MOTOR ROUTES ================= */
+
+void forward()
+{
+digitalWrite(IN1, HIGH);
+digitalWrite(IN2, LOW);
+
+digitalWrite(IN3, HIGH);
+digitalWrite(IN4, LOW);
+
+ledcWrite(ch1, 150);
+ledcWrite(ch2, 150);
+
+server.send(200, "text/plain", "forward");
+}
+
+void backward()
+{
+digitalWrite(IN1, LOW);
+digitalWrite(IN2, HIGH);
+
+digitalWrite(IN3, LOW);
+digitalWrite(IN4, HIGH);
+
+ledcWrite(ch1, 150);
+ledcWrite(ch2, 150);
+
+server.send(200, "text/plain", "backward");
+}
+
+void left()
+{
+digitalWrite(IN1, LOW);
+digitalWrite(IN2, LOW); // Left motor stop
+
+digitalWrite(IN3, HIGH);
+digitalWrite(IN4, LOW); // Right motor forward
+
+ledcWrite(ch1, 0);
+ledcWrite(ch2, 150);
+
+server.send(200, "text/plain", "left");
+}
+
+void right()
+{
+digitalWrite(IN1, HIGH);
+digitalWrite(IN2, LOW); // Left motor forward
+
+digitalWrite(IN3, LOW);
+digitalWrite(IN4, LOW); // Right motor stop
+
+ledcWrite(ch1, 150);
+ledcWrite(ch2, 0);
+
+server.send(200, "text/plain", "right");
+}
+
+void stopMotors()
+{
+digitalWrite(IN1, LOW);
+digitalWrite(IN2, LOW);
+
+digitalWrite(IN3, LOW);
+digitalWrite(IN4, LOW);
+
+ledcWrite(ch1, 0);
+ledcWrite(ch2, 0);
+
+server.send(200, "text/plain", "stop");
+}
+
+/* ================= SETUP ================= */
+
+void setup() {
+
+Serial.begin(115200);
+
+pinMode(PIR_PIN, INPUT);
+
+pinMode(IN1, OUTPUT);
+pinMode(IN2, OUTPUT);
+pinMode(IN3, OUTPUT);
+pinMode(IN4, OUTPUT);
+
+
+ledcSetup(ch1, 1000, 8);
+ledcSetup(ch2, 1000, 8);
+
+ledcAttachPin(ENA, ch1);
+ledcAttachPin(ENB, ch2);
+
+
+analogReadResolution(12);
+analogSetPinAttenuation(PIN_LM35, ADC_11db);
+analogSetPinAttenuation(MQ135_PIN, ADC_11db);
+
+WiFi.begin(ssid, password);
+
+Serial.println("Connecting WiFi...");
+
+while (WiFi.status() != WL_CONNECTED) {
+delay(500);
+Serial.print(".");
+}
+
+Serial.println();
+Serial.println("WiFi connected");
+Serial.print("ESP32 IP: ");
+Serial.println(WiFi.localIP());
+delay(2000);
+sendTelegram("ESP32 connected and ready");
+
+Serial.println("MQ135 warming up...");
+delay(60000);
+
+Serial.println("Calibrating gas baseline...");
+
+long baseSum = 0;
+
+for (int i = 0; i < BASELINE_SAMPLES; i++) {
+baseSum += readMQ135Avg();
+delay(100);
+}
+
+gasBaseline = baseSum / (float)BASELINE_SAMPLES;
+
+Serial.print("Gas baseline: ");
+Serial.println(gasBaseline);
+
+server.on("/detect", handleDetect);
+
+server.on("/forward", forward);
+server.on("/back", backward);
+server.on("/left", left);
+server.on("/right", right);
+server.on("/stop", stopMotors);
+
+server.begin();
+
+Serial.println("HTTP server started");
+}
+
+/* ================= LOOP ================= */
+
+void loop() {
+
+server.handleClient();
+
+if (monitoring) {
+
+if (digitalRead(PIR_PIN) == HIGH) {
+motionDetected = true;
+}
+
+if (millis() - monitorStartTime >= PIR_MONITOR_TIME) {
+
+if (motionDetected) {
+sendTelegram("Human detected in motion");
+} else {
+sendTelegram("Human detected but no motion");
+}
+
+monitoring = false;
+}
+}
+
+long adcSum = 0;
+
+for (int i = 0; i < 20; i++) {
+adcSum += analogRead(PIN_LM35);
+delay(5);
+}
+
+float adcAvg = adcSum / 20.0;
+
+float milliVolt = adcAvg * (ADC_VREF_mV / ADC_RESOLUTION);
+
+float tempC = (milliVolt / 10.0) + CALIBRATION_OFFSET;
+
+Serial.print("Temperature: ");
+Serial.println(tempC);
+
+if (tempC > TEMP_ALERT_THRESHOLD && !tempAlertSent) {
+
+sendTelegram("High temperature: " + String(tempC) + " C");
+tempAlertSent = true;
+}
+
+if (tempC < TEMP_ALERT_THRESHOLD - 2) {
+tempAlertSent = false;
+}
+
+float gasCurrent = readMQ135Avg();
+
+float gasDelta = gasCurrent - gasBaseline;
+
+Serial.print("Gas delta: ");
+Serial.println(gasDelta);
+
+if (gasDelta > GAS_ALERT_THRESHOLD && !gasAlertSent) {
+
+sendTelegram("High gas concentration detected");
+gasAlertSent = true;
+}
+
+if (gasDelta < GAS_ALERT_THRESHOLD - 200) {
+gasAlertSent = false;
+}
+
+delay(1000);
+}
+
 
