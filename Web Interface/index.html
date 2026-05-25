@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Smart Response and Monitoring Rover</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        font-family: Arial;
+    }
+
+    body {
+        height: 100vh;
+        background: url('https://images.unsplash.com/photo-1508615070457-7baeba4003ab') no-repeat center/cover;
+        display: flex;
+        align-items: center;
+    }
+
+    /* HEADING */
+    .heading {
+        position: absolute;
+        top: 30px;
+        left: 50px;
+        color: white;
+        font-size: 32px;
+        font-weight: bold;
+        text-shadow: 2px 2px 5px black;
+    }
+
+    /* START BUTTON */
+    .start-btn {
+        margin-left: 50px;
+        padding: 15px 40px;
+        font-size: 22px;
+        background: #00c853;
+        color: white;
+        border: none;
+        border-radius: 10px;
+        cursor: pointer;
+    }
+
+    /* MENU */
+    .menu {
+        position: absolute;
+        display: none;
+        flex-direction: column;
+        gap: 15px;
+    }
+
+    .menu button {
+        padding: 12px 30px;
+        font-size: 18px;
+        border: none;
+        border-radius: 8px;
+        background: rgba(0,0,0,0.7);
+        color: white;
+        cursor: pointer;
+    }
+
+    .menu button:hover {
+        background: rgba(0,0,0,0.9);
+    }
+    .info-box {
+    position: absolute;
+    top: 80px;
+    left: 50px;
+    background: rgba(0,0,0,0.7);
+    color: white;
+    padding: 10px 15px;
+    border-radius: 8px;
+    font-size: 14px;
+    display: none;
+    max-width: 300px;
+}
+
+</style>
+</head>
+
+<body>
+
+<!-- HEADING -->
+<div class="heading" onmouseover="showInfo()" onmouseout="hideInfo()">
+    Smart Response and Monitoring Rover
+</div>
+
+<div class="info-box" id="infoBox">
+This system is based on Intelligent Robotics and Embedded Systems for disaster response and surveillance. It uses sensors, cameras, and wireless communication for real-time monitoring and alerts. It helps reduce human risk in hazardous zones and enables early detection of victims and hazards, making rescue operations faster and safer.
+</div>
+
+
+<!-- START BUTTON -->
+<button class="start-btn" onclick="showMenu()">START</button>
+
+<!-- MENU -->
+<div class="menu" id="menu">
+    <button onclick="startStream()">📷 Stream</button>
+    <button onclick="startDetection()">🤖 Human Detection</button>
+    <button onclick="manualDrive()">🎮 Manual Driving</button>
+</div>
+
+<script>
+function showMenu() {
+    const btn = document.querySelector(".start-btn");
+    const menu = document.getElementById("menu");
+
+    const rect = btn.getBoundingClientRect();
+
+    menu.style.left = (rect.right + 113) + "px"; // 3 cm gap
+    menu.style.top = rect.top + "px";
+
+    menu.style.display = "flex";
+}
+
+function startStream() {
+    fetch('/stream')
+    .then(res => res.text())
+    .then(data => alert(data));
+}
+
+function startDetection() {
+    fetch('/detect')
+    .then(res => res.text())
+    .then(data => alert(data));
+}
+
+function manualDrive() {
+    fetch('/manual')
+    .then(res => res.text())
+    .then(data => alert(data));
+}
+function showInfo() {
+    document.getElementById("infoBox").style.display = "block";
+}
+
+function hideInfo() {
+    document.getElementById("infoBox").style.display = "none";
+}
+
+</script>
+
+</body>
+</html>
